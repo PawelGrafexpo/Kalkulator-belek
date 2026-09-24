@@ -5,6 +5,7 @@ import math
 from collections import defaultdict
 from fpdf import FPDF
 import tempfile
+import os
 
 # Konfiguracja strony aplikacji
 st.set_page_config(page_title="Kalkulator Rusztu Podłogowego GRAFEXPO", layout="wide")
@@ -108,9 +109,9 @@ if submitted:
     ax.set_xlim(-margines, szer_podlogi + margines)
     ax.set_ylim(-margines, dl_podlogi + margines)
     ax.set_aspect('equal')
-    plt.title(f"Ruszt podłogowy | {szer_podlogi:.0f} x {dl_podlogi:.0f} mm | Kantówka: {kantowka_dl} mm", fontsize=11, pad=15)
-    plt.xlabel("Szerokość podłogi (mm)", fontsize=11)
-    plt.ylabel("Długość podłogi (mm)", fontsize=11)
+    plt.title(f"Ruszt podlogowy | Szer: {szer_podlogi:.0f} mm | Dlug: {dl_podlogi:.0f} mm | Kantowka: {kantowka_dl} mm", fontsize=10, pad=15)
+    plt.xlabel("Szerokosc podlogi (mm)", fontsize=10)
+    plt.ylabel("Dlugosc podlogi (mm)", fontsize=10)
     plt.grid(True, linestyle='--', alpha=0.5)
 
     # Wyświetlanie wykresu w Streamlit
@@ -144,36 +145,44 @@ if submitted:
         
     st.success(f"📏 **Łączna długość elementów konstrukcji: {calkowita_dlugosc_metrow:.2f} m**")
 
-    # --- GENEROWANIE PLIKU PDF Z BEZPIECZNYM KODOWANIEM ZNAKÓW ---
+    # --- GENEROWANIE PLIKU PDF Z WYKRESEM ---
     def bezpieczny(tekst):
         return tekst.encode('latin-1', 'replace').decode('latin-1')
 
+    # Zapisujemy wykres do pliku tymczasowego PNG, aby wkleić go do PDF
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_img:
+        fig.savefig(tmp_img.name, bbox_inches='tight', dpi=150)
+        img_path = tmp_img.name
+
     class PDF(FPDF):
         def header(self):
-            self.set_font("helvetica", "B", 14)
-            self.cell(0, 10, bezpieczny("Kalkulator rusztu podłogowego GRAFEXPO - Raport"), 0, 1, "C")
-            self.ln(5)
+            self.set_font("helvetica", "B", 13)
+            self.cell(0, 8, bezpieczny("Kalkulator rusztu podlogowego GRAFEXPO - Raport"), 0, 1, "C")
+            self.ln(3)
 
     pdf = PDF()
     pdf.add_page()
-    pdf.set_font("helvetica", "", 11)
+    pdf.set_font("helvetica", "", 10)
     
-    pdf.cell(0, 8, bezpieczny(f"Szerokosc podlogi: {szer_podlogi:.0f} mm"), 0, 1)
-    pdf.cell(0, 8, bezpieczny(f"Dlugosc podlogi: {dl_podlogi:.0f} mm"), 0, 1)
-    pdf.cell(0, 8, bezpieczny(f"Standardowa dlugosc kantowki: {kantowka_dl:.0f} mm"), 0, 1)
-    pdf.cell(0, 8, bezpieczny(f"Szerokosc kantowki: {kantowka_szer:.0f} mm"), 0, 1)
-    pdf.ln(5)
+    pdf.cell(0, 6, bezpieczny(f"Szerokosc podlogi: {szer_podlogi:.0f} mm | Dlugosc podlogi: {dl_podlogi:.0f} mm"), 0, 1)
+    pdf.cell(0, 6, bezpieczny(f"Kantowka handlowa: {kantowka_dl:.0f} mm | Szerokosc kantowki: {kantowka_szer:.0f} mm"), 0, 1)
+    pdf.ln(3)
     
-    pdf.set_font("helvetica", "B", 12)
-    pdf.cell(0, 8, bezpieczny("Podsumowanie materialowe (do zakupu / ciecia):"), 0, 1)
-    pdf.set_font("helvetica", "", 11)
+    pdf.set_font("helvetica", "B", 11)
+    pdf.cell(0, 6, bezpieczny("Podsumowanie materialowe (do zakupu / ciecia):"), 0, 1)
+    pdf.set_font("helvetica", "", 10)
     
     for dł, ilosc in sorted(zapotrzebowanie_dlugosci.items(), key=lambda x: x[0], reverse=True):
-        pdf.cell(0, 7, bezpieczny(f"- Kantówka o długości {dł:.0f} mm: {ilosc} szt."), 0, 1)
+        pdf.cell(0, 6, bezpieczny(f"-> Kantowka o dlugosci {dł:.0f} mm: {ilosc} szt."), 0, 1)
         
+    pdf.ln(3)
+    pdf.cell(0, 6, bezpieczny(f"Laczna dlugosc elementów: {calkowita_dlugosc_metrow:.2f} m"), 0, 1)
     pdf.ln(5)
-    pdf.cell(0, 8, bezpieczny(f"Laczna dlugosc elementów: {calkowita_dlugosc_metrow:.2f} m"), 0, 1)
+
+    # Wklejenie wykresu do PDF (szerokość 190 mm ładnie mieści się na stronie A4)
+    pdf.image(img_path, x=10, y=pdf.get_y(), w=190)
     
+    # Zapis do pliku tymczasowego PDF
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
         pdf.output(tmp_file.name)
         tmp_path = tmp_file.name
@@ -181,8 +190,14 @@ if submitted:
     with open(tmp_path, "rb") as pdf_file:
         PDFbyte = pdf_file.read()
 
+    # Usuwamy plik tymczasowy obrazka z dysku
+    try:
+        os.unlink(img_path)
+    except:
+        pass
+
     st.download_button(
-        label="📥 Pobierz podsumowanie w formacie PDF",
+        label="📥 Pobierz podsumowanie w formacie PDF z wykresem",
         data=PDFbyte,
         file_name="zapotrzebowanie_kantowek_grafexpo.pdf",
         mime="application/octet-stream"
