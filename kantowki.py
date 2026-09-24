@@ -3,11 +3,13 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import math
 from collections import defaultdict
+from fpdf import FPDF
+import tempfile
 
 # Konfiguracja strony aplikacji
-st.set_page_config(page_title="Kalkulator Rusztu Podłogowego", layout="wide")
+st.set_page_config(page_title="Kalkulator Rusztu Podłogowego GRAFEXPO", layout="wide")
 
-st.title("🏡 Inteligentny Kalkulator Rusztu Podłogowego")
+st.title("🏗️ Kalkulator rusztu podłogowego GRAFEXPO")
 st.write("Wprowadź parametry podłogi oraz kantówek w panelu poniżej, aby wygenerować plan rozkroju oraz precyzyjne zestawienie materiałowe.")
 
 # Panel wprowadzania danych w układzie kolumnowym
@@ -16,11 +18,11 @@ with st.form("kalkulator_form"):
     col1, col2 = st.columns(2)
     
     with col1:
-        szer_podlogi = st.number_input("Szerokość podłogi w mm", min_value=500.0, value=5000.0, step=100.0)
+        szer_podlogi = st.number_input("Szerokość podłogi w mm", min_value=500.0, value=12500.0, step=100.0)
         dl_podlogi = st.number_input("Długość podłogi w mm", min_value=500.0, value=9500.0, step=100.0)
     with col2:
         kantowka_dl = st.number_input("Standardowa długość kantówki w mm", min_value=500.0, value=4800.0, step=100.0)
-        kantowka_szer = st.number_input("Szerokość / grubość kantówki w mm", min_value=10.0, value=50.0, step=5.0)
+        kantowka_szer = st.number_input("Szerokość / grubość kantówki w mm", min_value=10.0, value=38.0, step=1.0)
         
     submitted = st.form_submit_button("Oblicz i wygeneruj plan")
 
@@ -137,7 +139,51 @@ if submitted:
     st.markdown("---")
     st.subheader("📋 Podsumowanie Materiałowe (Lista elementów do zakupu)")
     
-    for dł, ilosc in sorted(zot := zapotrzebowanie_dlugosci.items(), key=lambda x: x[0], reverse=True):
+    for dł, ilosc in sorted(zapotrzebowanie_dlugosci.items(), key=lambda x: x[0], reverse=True):
         st.info(f"👉 **Kantówka o długości {dł:.0f} mm** -> **{ilosc} szt.**")
         
     st.success(f"📏 **Łączna długość elementów konstrukcji: {calkowita_dlugosc_metrow:.2f} m**")
+
+    # --- GENEROWANIE PLIKU PDF Z BEZPIECZNYM KODOWANIEM ZNAKÓW ---
+    def bezpieczny(tekst):
+        return tekst.encode('latin-1', 'replace').decode('latin-1')
+
+    class PDF(FPDF):
+        def header(self):
+            self.set_font("helvetica", "B", 14)
+            self.cell(0, 10, bezpieczny("Kalkulator rusztu podłogowego GRAFEXPO - Raport"), 0, 1, "C")
+            self.ln(5)
+
+    pdf = PDF()
+    pdf.add_page()
+    pdf.set_font("helvetica", "", 11)
+    
+    pdf.cell(0, 8, bezpieczny(f"Szerokosc podlogi: {szer_podlogi:.0f} mm"), 0, 1)
+    pdf.cell(0, 8, bezpieczny(f"Dlugosc podlogi: {dl_podlogi:.0f} mm"), 0, 1)
+    pdf.cell(0, 8, bezpieczny(f"Standardowa dlugosc kantowki: {kantowka_dl:.0f} mm"), 0, 1)
+    pdf.cell(0, 8, bezpieczny(f"Szerokosc kantowki: {kantowka_szer:.0f} mm"), 0, 1)
+    pdf.ln(5)
+    
+    pdf.set_font("helvetica", "B", 12)
+    pdf.cell(0, 8, bezpieczny("Podsumowanie materialowe (do zakupu / ciecia):"), 0, 1)
+    pdf.set_font("helvetica", "", 11)
+    
+    for dł, ilosc in sorted(zapotrzebowanie_dlugosci.items(), key=lambda x: x[0], reverse=True):
+        pdf.cell(0, 7, bezpieczny(f"- Kantówka o długości {dł:.0f} mm: {ilosc} szt."), 0, 1)
+        
+    pdf.ln(5)
+    pdf.cell(0, 8, bezpieczny(f"Laczna dlugosc elementów: {calkowita_dlugosc_metrow:.2f} m"), 0, 1)
+    
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+        pdf.output(tmp_file.name)
+        tmp_path = tmp_file.name
+
+    with open(tmp_path, "rb") as pdf_file:
+        PDFbyte = pdf_file.read()
+
+    st.download_button(
+        label="📥 Pobierz podsumowanie w formacie PDF",
+        data=PDFbyte,
+        file_name="zapotrzebowanie_kantowek_grafexpo.pdf",
+        mime="application/octet-stream"
+    )
